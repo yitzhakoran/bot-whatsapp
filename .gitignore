@@ -1,0 +1,13 @@
+Ignorar node_modules
+node_modules/
+
+# Ignorar logs
+*.log
+
+# Ignorar arquivos de sessão do WhatsApp que você não quer subir
+# (opcional: se quiser subir, não adicione)
+# .wwebjs_auth/
+
+# Ignorar arquivos do sistema
+.DS_Store
+Thumbs.db

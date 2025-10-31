@@ -1,6 +1,6 @@
 // ===== IMPORTS =====
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { Client, LocalAuth, MessageMedia, Buttons } = require('whatsapp-web.js');
+const qrcode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -15,113 +15,161 @@ const client = new Client({
     puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
 });
 
+// ===== VARIÁVEL PARA QR =====
+let qrCodeDataURL = null;
+
+// ===== EXPRESS =====
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => res.send('🤖 Bot online! 💖'));
+
+app.get('/qr', (req, res) => {
+    if (!qrCodeDataURL) return res.send('QR Code ainda não gerado.');
+    res.send(`
+        <html>
+            <body style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;">
+                <h2>Escaneie este QR Code no WhatsApp</h2>
+                <img src="${qrCodeDataURL}" />
+            </body>
+        </html>
+    `);
+});
+
+app.listen(PORT, () => console.log(`🌐 Servidor rodando na porta ${PORT}`));
+
 // ===== QR CODE =====
-client.on('qr', qr => {
-    console.log('📱 Escaneie o QR Code com o WhatsApp Business:');
-    qrcode.generate(qr, { small: true });
+client.on('qr', async (qr) => {
+    console.log('📱 QR Code gerado. Acesse /qr para escanear.');
+    qrCodeDataURL = await qrcode.toDataURL(qr);
 });
 
 // ===== READY =====
 client.on('ready', () => {
     console.log('🤖 Bot conectado com sucesso!');
+    qrCodeDataURL = null; // limpa QR Code após conectar
 });
-
-// ===== USUÁRIOS =====
-const usuarios = {};
-
-// ===== FUNÇÃO DE ENVIO =====
-async function enviarMensagem(destino, texto) {
-    const tempo = delayAleatorio();
-    await client.sendStateTyping(destino);
-    await sleep(tempo);
-    await client.sendMessage(destino, texto);
-    await client.clearState(destino);
-}
-
-// ===== ENVIAR PDF =====
-async function enviarPDF(numero, tipo) {
-    const arquivos = {
-        casamento: 'Casamento.pdf',
-        kids: 'Kids.pdf',
-        teen: 'Teen.pdf'
-    };
-    const caminho = path.join(__dirname, 'pdfs', arquivos[tipo]);
-    if (!fs.existsSync(caminho)) {
-        await enviarMensagem(numero, '⚠️ Arquivo PDF não encontrado.');
-        return;
-    }
-    const media = MessageMedia.fromFilePath(caminho);
-    await sleep(1500);
-    await client.sendMessage(numero, media);
-    await enviarMensagem(numero, '💌 Se precisar de ajustes ou dúvidas, me chame aqui!');
-}
-
-// ===== MENSAGENS =====
-client.on('message', async (msg) => {
-    const numero = msg.from;
-    const texto = msg.body.trim().toLowerCase();
-    const nome = msg._data.notifyName || "cliente";
-
-    if (!usuarios[numero]) {
-        usuarios[numero] = { etapa: "inicio", tipo: null, respostas: {} };
-        await enviarMensagem(numero, `Olá, ${nome}! 🌷\nSou a *Helena Cutrim*.\nBem-vindo(a) ao *Comercial Srt. Carolina Chagas*! 💖`);
-        await enviarMensagem(numero, `Escolha uma opção:\n1️⃣ Casamento\n2️⃣ Kids\n3️⃣ Teen (15 anos)\n4️⃣ Agendar reunião\n5️⃣ Financeiro\n6️⃣ Outros assuntos`);
-        return;
-    }
-
-    const usuario = usuarios[numero];
-
-    // ===== AGUARDANDO COMPROVANTE =====
-    if (usuario.etapa === "aguardando_comprovante") {
-        usuario.etapa = "fim";
-        await enviarMensagem(numero, "Recebemos seu comprovante! 👍 Passaremos para nossa equipe para confirmação.");
-        delete usuarios[numero];
-        return;
-    }
-
-    // ===== MENU INICIAL =====
-    if (usuario.etapa === "inicio") {
-        switch (texto) {
-            case "1": usuario.tipo = "casamento"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "💍 Nome completo dos noivos?"); break;
-            case "2": usuario.tipo = "kids"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "🎈 Nome e idade do aniversariante?"); break;
-            case "3": usuario.tipo = "teen"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "🎉 Nome do(a) aniversariante?"); break;
-            case "4": usuario.tipo = "reuniao"; usuario.etapa = "reuniao_nome"; await enviarMensagem(numero, "📅 Envie seu nome completo para agendar reunião."); break;
-            case "5":
-                const chavePix = "98984706448";
-                const favorecido = "Ana Carolina Chagas Primo";
-                await enviarMensagem(numero, `💰 Pix:\n🔑 ${chavePix}\n👤 ${favorecido}\n\nApós pagamento, envie o comprovante aqui.`);
-                usuario.etapa = "aguardando_comprovante";
-                break;
-            case "6": await enviarMensagem(numero, "💬 Descreva seu assunto, por favor."); delete usuarios[numero]; break;
-            default: await enviarMensagem(numero, "Escolha apenas o número correspondente. 💬"); break;
-        }
-        return;
-    }
-
-    // ===== FLUXO CASAMENTO/KIDS/TEEN =====
-    const tiposComPDF = ["casamento","kids","teen"];
-    if (tiposComPDF.includes(usuario.tipo)) {
-        switch (usuario.etapa) {
-            case "etapa_nome": usuario.respostas.nome = msg.body; usuario.etapa = "etapa_data"; await enviarMensagem(numero,"📅 Data e local do evento?"); break;
-            case "etapa_data": usuario.respostas.data = msg.body; usuario.etapa = "etapa_tipoServico"; await enviarMensagem(numero,"🌿 Tipo de serviço (ex: completo, coordenação ou consultoria)?"); break;
-            case "etapa_tipoServico": usuario.respostas.tipoServico = msg.body; usuario.etapa = "etapa_perguntas"; await enviarMensagem(numero,"Três perguntinhas rápidas:\n1️⃣ Número de convidados?\n2️⃣ Horário e local da recepção?\n3️⃣ Vai acontecer em São Luís - MA?"); break;
-            case "etapa_perguntas": usuario.respostas.perguntas = msg.body; usuario.etapa = "fim"; await enviarMensagem(numero,"Perfeito! Enviando nosso mini e-book 📘✨"); await enviarPDF(numero, usuario.tipo); delete usuarios[numero]; break;
-        }
-    }
-});
-
-// ===== INICIALIZAÇÃO =====
-client.initialize();
-
-// ===== EXPRESS PARA RENDER =====
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (req, res) => res.send('🤖 Bot online! 💖'));
-app.listen(PORT, () => console.log(`🌐 Servidor web rodando na porta ${PORT}`));
 
 // ===== RECONEXÃO =====
 client.on('disconnected', reason => {
     console.log('❌ Cliente desconectado:', reason);
     client.initialize();
 });
+
+// ===== FUNÇÃO DE ENVIO DE MENSAGEM =====
+async function enviarMensagem(destino, texto) {
+    try {
+        const tempo = delayAleatorio();
+        await sleep(tempo);
+        await client.sendMessage(destino, texto);
+    } catch (err) {
+        console.error('Erro ao enviar mensagem:', err);
+    }
+}
+
+// ===== FUNÇÃO DE ENVIO DE PDF =====
+async function enviarPDF(numero, tipo) {
+    try {
+        const arquivos = {
+            casamento: 'Casamento.pdf',
+            kids: 'Kids.pdf',
+            teen: 'Teen.pdf'
+        };
+        const caminho = path.join(__dirname, 'pdfs', arquivos[tipo]);
+        if (!fs.existsSync(caminho)) {
+            await enviarMensagem(numero, '⚠️ Arquivo PDF não encontrado.');
+            return;
+        }
+        const media = MessageMedia.fromFilePath(caminho);
+        await sleep(1500);
+        await client.sendMessage(numero, media);
+        await enviarMensagem(numero, '💌 Se precisar de ajustes ou dúvidas, me chame aqui!');
+    } catch (err) {
+        console.error('Erro ao enviar PDF:', err);
+    }
+}
+
+// ===== USUÁRIOS =====
+const usuarios = {};
+
+// ===== FLUXO DE MENSAGENS =====
+client.on('message', async (msg) => {
+    try {
+        const numero = msg.from;
+        const texto = msg.body.trim().toLowerCase();
+        const nome = msg._data.notifyName || "cliente";
+
+        if (!usuarios[numero]) {
+            usuarios[numero] = { etapa: "inicio", tipo: null, respostas: {} };
+            await enviarMensagem(numero, `Olá, ${nome}! 🌷\nSou a *Helena Cutrim*.\nBem-vindo(a) ao *Comercial Srt. Carolina Chagas*! 💖`);
+            await enviarMensagem(numero, `Escolha uma opção:\n1️⃣ Casamento\n2️⃣ Kids\n3️⃣ Teen (15 anos)\n4️⃣ Agendar reunião\n5️⃣ Financeiro\n6️⃣ Outros assuntos`);
+            return;
+        }
+
+        const usuario = usuarios[numero];
+
+        // ===== AGUARDANDO COMPROVANTE =====
+        if (usuario.etapa === "aguardando_comprovante") {
+            usuario.etapa = "fim";
+            await enviarMensagem(numero, "Recebemos seu comprovante! 👍 Passaremos para nossa equipe para confirmação.");
+            delete usuarios[numero];
+            return;
+        }
+
+        // ===== MENU INICIAL =====
+        if (usuario.etapa === "inicio") {
+            switch (texto) {
+                case "1": usuario.tipo = "casamento"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "💍 Nome completo dos noivos?"); break;
+                case "2": usuario.tipo = "kids"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "🎈 Nome e idade do aniversariante?"); break;
+                case "3": usuario.tipo = "teen"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "🎉 Nome do(a) aniversariante?"); break;
+                case "4": usuario.tipo = "reuniao"; usuario.etapa = "reuniao_nome"; await enviarMensagem(numero, "📅 Envie seu nome completo para agendar reunião."); break;
+                case "5":
+                    const chavePix = "98984706448";
+                    const favorecido = "Ana Carolina Chagas Primo";
+                    await enviarMensagem(numero, `💰 Pix:\n🔑 ${chavePix}\n👤 ${favorecido}\n\nApós pagamento, envie o comprovante aqui.`);
+                    usuario.etapa = "aguardando_comprovante";
+                    break;
+                case "6": await enviarMensagem(numero, "💬 Descreva seu assunto, por favor."); delete usuarios[numero]; break;
+                default: await enviarMensagem(numero, "Escolha apenas o número correspondente. 💬"); break;
+            }
+            return;
+        }
+
+        // ===== FLUXO CASAMENTO/KIDS/TEEN =====
+        const tiposComPDF = ["casamento","kids","teen"];
+        if (tiposComPDF.includes(usuario.tipo)) {
+            switch (usuario.etapa) {
+                case "etapa_nome": 
+                    usuario.respostas.nome = msg.body; 
+                    usuario.etapa = "etapa_data"; 
+                    await enviarMensagem(numero,"📅 Data e local do evento?"); 
+                    break;
+                case "etapa_data": 
+                    usuario.respostas.data = msg.body; 
+                    usuario.etapa = "etapa_tipoServico"; 
+                    await enviarMensagem(numero,"🌿 Tipo de serviço (ex: completo, coordenação ou consultoria)?"); 
+                    break;
+                case "etapa_tipoServico": 
+                    usuario.respostas.tipoServico = msg.body; 
+                    usuario.etapa = "etapa_perguntas"; 
+                    await enviarMensagem(numero,"Três perguntinhas rápidas:\n1️⃣ Número de convidados?\n2️⃣ Horário e local da recepção?\n3️⃣ Vai acontecer em São Luís - MA?"); 
+                    break;
+                case "etapa_perguntas": 
+                    usuario.respostas.perguntas = msg.body; 
+                    usuario.etapa = "fim"; 
+                    await enviarMensagem(numero,"Perfeito! Enviando nosso mini e-book 📘✨"); 
+                    await enviarPDF(numero, usuario.tipo); 
+                    delete usuarios[numero]; 
+                    break;
+            }
+        }
+
+    } catch (err) {
+        console.error('Erro no fluxo de mensagens:', err);
+    }
+});
+
+// ===== INICIALIZAÇÃO =====
+client.initialize();
+
+

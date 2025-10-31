@@ -1,6 +1,6 @@
 // ===== IMPORTS =====
-const { Client, LocalAuth, MessageMedia, Buttons } = require('whatsapp-web.js');
-const qrcode = require('qrcode');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
@@ -15,59 +15,32 @@ const client = new Client({
     puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
 });
 
-// ===== VARIÁVEL PARA QR =====
-let qrCodeDataURL = null;
-
-// ===== EXPRESS =====
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get('/', (req, res) => res.send('🤖 Bot online! 💖'));
-
-app.get('/qr', (req, res) => {
-    if (!qrCodeDataURL) return res.send('QR Code ainda não gerado.');
-    res.send(`
-        <html>
-            <body style="display:flex;align-items:center;justify-content:center;height:100vh;flex-direction:column;">
-                <h2>Escaneie este QR Code no WhatsApp</h2>
-                <img src="${qrCodeDataURL}" />
-            </body>
-        </html>
-    `);
-});
-
-app.listen(PORT, () => console.log(`🌐 Servidor rodando na porta ${PORT}`));
-
 // ===== QR CODE =====
-client.on('qr', async (qr) => {
-    console.log('📱 QR Code gerado. Acesse /qr para escanear.');
-    qrCodeDataURL = await qrcode.toDataURL(qr);
+client.on('qr', qr => {
+    console.log('📱 Escaneie o QR Code com o WhatsApp Business:');
+    qrcode.generate(qr, { small: true });
 });
 
 // ===== READY =====
 client.on('ready', () => {
     console.log('🤖 Bot conectado com sucesso!');
-    qrCodeDataURL = null; // limpa QR Code após conectar
 });
 
-// ===== RECONEXÃO =====
-client.on('disconnected', reason => {
-    console.log('❌ Cliente desconectado:', reason);
-    client.initialize();
-});
+// ===== USUÁRIOS =====
+const usuarios = {};
 
-// ===== FUNÇÃO DE ENVIO DE MENSAGEM =====
+// ===== FUNÇÃO DE ENVIO =====
 async function enviarMensagem(destino, texto) {
     try {
         const tempo = delayAleatorio();
-        await sleep(tempo);
+        await sleep(tempo); // simula digitação
         await client.sendMessage(destino, texto);
     } catch (err) {
         console.error('Erro ao enviar mensagem:', err);
     }
 }
 
-// ===== FUNÇÃO DE ENVIO DE PDF =====
+// ===== ENVIAR PDF =====
 async function enviarPDF(numero, tipo) {
     try {
         const arquivos = {
@@ -88,9 +61,6 @@ async function enviarPDF(numero, tipo) {
         console.error('Erro ao enviar PDF:', err);
     }
 }
-
-// ===== USUÁRIOS =====
-const usuarios = {};
 
 // ===== FLUXO DE MENSAGENS =====
 client.on('message', async (msg) => {
@@ -172,4 +142,14 @@ client.on('message', async (msg) => {
 // ===== INICIALIZAÇÃO =====
 client.initialize();
 
+// ===== EXPRESS PARA RENDER (BÁSICO) =====
+const app = express();
+const PORT = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('🤖 Bot online! 💖'));
+app.listen(PORT, () => console.log(`🌐 Servidor web rodando na porta ${PORT}`));
 
+// ===== RECONEXÃO =====
+client.on('disconnected', reason => {
+    console.log('❌ Cliente desconectado:', reason);
+    client.initialize();
+});

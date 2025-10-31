@@ -125,8 +125,3 @@ client.on('disconnected', reason => {
     console.log('❌ Cliente desconectado:', reason);
     client.initialize();
 });
-
-
-
-
-

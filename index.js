@@ -1,53 +1,4 @@
-const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
-const fs = require('fs');
-const path = require('path');
-const express = require('express');
-
-// ===== FUNÇÕES AUXILIARES =====
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const delayAleatorio = () => Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
-
-// ===== CRIAÇÃO DO CLIENTE =====
-const client = new Client({
-  authStrategy: new LocalAuth(),
-  puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
-});
-
-// ===== EVENTO QR =====
-client.on('qr', (qr) => {
-  console.log('📱 Escaneie o QR Code abaixo com o WhatsApp Business:');
-  qrcode.generate(qr, { small: true });
-});
-
-// ===== EVENTO READY =====
-client.on('ready', () => {
-  console.log('🤖 Bot conectado com sucesso!');
-});
-
-// ===== ARMAZENAMENTO DE USUÁRIOS =====
-const usuarios = {};
-
-// ===== FUNÇÃO DE ENVIO =====
-async function enviarMensagem(destino, texto) {
-  const tempo = delayAleatorio();
-  await sleep(tempo);
-  try {
-    await client.sendMessage(destino, texto);
-  } catch (err) {
-    console.error(`❌ Erro ao enviar mensagem para ${destino}:`, err.message);
-  }
-}
-
-// ===== FUNÇÃO PARA ENVIAR PDF =====
-async function enviarPDF(numero, tipo) {
-  const caminhos = {
-    casamento: 'Casamento.pdf',
-    kids: 'Kids.pdf',
-    teen: 'Teen.pdf'
-  };
-
-  const caminhoArquivo = path.join(__dirname, 'pdfs', caminhos[tipo]);
+// ===== IMPORTS =====
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const fs = require('fs');
@@ -58,24 +9,24 @@ const express = require('express');
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const delayAleatorio = () => Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
 
-// ===== CRIAÇÃO DO CLIENTE =====
+// ===== CLIENTE WHATSAPP =====
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] }
 });
 
-// ===== EVENTO QR =====
+// ===== QR CODE =====
 client.on('qr', qr => {
     console.log('📱 Escaneie o QR Code com o WhatsApp Business:');
     qrcode.generate(qr, { small: true });
 });
 
-// ===== EVENTO READY =====
+// ===== READY =====
 client.on('ready', () => {
     console.log('🤖 Bot conectado com sucesso!');
 });
 
-// ===== ARMAZENAMENTO DE USUÁRIOS =====
+// ===== USUÁRIOS =====
 const usuarios = {};
 
 // ===== FUNÇÃO DE ENVIO =====
@@ -87,28 +38,25 @@ async function enviarMensagem(destino, texto) {
     await client.clearState(destino);
 }
 
-// ===== FUNÇÃO PARA ENVIAR PDF =====
+// ===== ENVIAR PDF =====
 async function enviarPDF(numero, tipo) {
-    const caminhos = {
+    const arquivos = {
         casamento: 'Casamento.pdf',
         kids: 'Kids.pdf',
         teen: 'Teen.pdf'
     };
-
-    const caminhoArquivo = path.join(__dirname, 'pdfs', caminhos[tipo]);
-
-    if (!fs.existsSync(caminhoArquivo)) {
+    const caminho = path.join(__dirname, 'pdfs', arquivos[tipo]);
+    if (!fs.existsSync(caminho)) {
         await enviarMensagem(numero, '⚠️ Arquivo PDF não encontrado.');
         return;
     }
-
-    const arquivo = MessageMedia.fromFilePath(caminhoArquivo);
+    const media = MessageMedia.fromFilePath(caminho);
     await sleep(1500);
-    await client.sendMessage(numero, arquivo);
-    await enviarMensagem(numero, 'Se precisar de ajustes ou dúvidas, me chame aqui! 💬');
+    await client.sendMessage(numero, media);
+    await enviarMensagem(numero, '💌 Se precisar de ajustes ou dúvidas, me chame aqui!');
 }
 
-// ===== EVENTO DE MENSAGEM =====
+// ===== MENSAGENS =====
 client.on('message', async (msg) => {
     const numero = msg.from;
     const texto = msg.body.trim().toLowerCase();
@@ -116,13 +64,14 @@ client.on('message', async (msg) => {
 
     if (!usuarios[numero]) {
         usuarios[numero] = { etapa: "inicio", tipo: null, respostas: {} };
-        await enviarMensagem(numero, `Olá, ${nome}! 🌷\nSou a *Helena Cutrim*.\nSeja bem-vindo(a) ao *Comercial Srt. Carolina Chagas*! 💖`);
+        await enviarMensagem(numero, `Olá, ${nome}! 🌷\nSou a *Helena Cutrim*.\nBem-vindo(a) ao *Comercial Srt. Carolina Chagas*! 💖`);
         await enviarMensagem(numero, `Escolha uma opção:\n1️⃣ Casamento\n2️⃣ Kids\n3️⃣ Teen (15 anos)\n4️⃣ Agendar reunião\n5️⃣ Financeiro\n6️⃣ Outros assuntos`);
         return;
     }
 
     const usuario = usuarios[numero];
 
+    // ===== AGUARDANDO COMPROVANTE =====
     if (usuario.etapa === "aguardando_comprovante") {
         usuario.etapa = "fim";
         await enviarMensagem(numero, "Recebemos seu comprovante! 👍 Passaremos para nossa equipe para confirmação.");
@@ -130,6 +79,7 @@ client.on('message', async (msg) => {
         return;
     }
 
+    // ===== MENU INICIAL =====
     if (usuario.etapa === "inicio") {
         switch (texto) {
             case "1": usuario.tipo = "casamento"; usuario.etapa = "etapa_nome"; await enviarMensagem(numero, "💍 Nome completo dos noivos?"); break;
@@ -148,6 +98,7 @@ client.on('message', async (msg) => {
         return;
     }
 
+    // ===== FLUXO CASAMENTO/KIDS/TEEN =====
     const tiposComPDF = ["casamento","kids","teen"];
     if (tiposComPDF.includes(usuario.tipo)) {
         switch (usuario.etapa) {
@@ -159,24 +110,22 @@ client.on('message', async (msg) => {
     }
 });
 
-// ===== INICIALIZAÇÃO DO CLIENTE =====
+// ===== INICIALIZAÇÃO =====
 client.initialize();
 
-// ===== EXPRESS PARA RENDER (EVITAR HIBERNAÇÃO) =====
+// ===== EXPRESS PARA RENDER =====
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-    res.send('🤖 Bot online! 💖');
-});
-
+app.get('/', (req, res) => res.send('🤖 Bot online! 💖'));
 app.listen(PORT, () => console.log(`🌐 Servidor web rodando na porta ${PORT}`));
 
-// ===== RECONEXÃO AUTOMÁTICA =====
-client.on('disconnected', (reason) => {
+// ===== RECONEXÃO =====
+client.on('disconnected', reason => {
     console.log('❌ Cliente desconectado:', reason);
     client.initialize();
 });
+
 
 
 
